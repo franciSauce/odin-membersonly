@@ -104,3 +104,94 @@ const postSignUp = [
   }
 ];
 
+const postLogin = (req, res, next) => {
+  passport.authenticate('local', (err, user, info) => {
+    if (err) return next(err);
+    if (!user) {
+      return res.status(400).render('pages/auth', {
+        title: 'Authentication',
+        errors: [{ msg: info && info.message ? info.message : 'Login failed' }],
+        data: { login_username: req.body.username },
+      });
+    }
+    req.logIn(user, (err) => {
+      if (err) return next(err);
+      return res.redirect('/');
+    });
+  })(req, res, next);
+};
+
+const getLogout = (req, res, next) => {
+  req.logout((err) => {
+    if (err) return next(err);
+  });
+  res.redirect('/');
+}
+
+const getNewMessage = (req, res, next) => {
+  try {
+    res.render('pages/new-msg', {
+      title: 'New Message',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+const getJoin = (req, res, next) => {
+  try {
+    res.render('pages/join', {
+      title: 'Join The Club!',
+    })
+  } catch (error) {
+    next(error);
+  }
+}
+
+const postJoin = [
+  validatePasscode,
+  async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).render('pages/join', {
+        title: 'New Message',
+        errors: errors.array(),
+      });
+    }
+    
+    const { passcode } = matchedData(req)
+
+    try {
+      const userId = req.user.id;
+      
+      if (![MEMBER_PASSCODE, ADMIN_PASSCODE].includes(passcode)) {
+        return res.status(400).render('pages/join', {
+          title: 'New Message',
+          errors: [{ msg: 'Wrong passcode' }],
+        });
+      }
+      
+      let user;
+      if (passcode === MEMBER_PASSCODE) {
+        await users.makeMember(userId);
+      } else if (passcode === ADMIN_PASSCODE) {
+        await users.makeAdmin(userId);
+      }
+
+      res.redirect('/');
+    } catch (error) {
+      next(error);
+    }
+  }
+];
+
+module.exports = {
+  getIndex,
+  getAuth,
+  postSignUp,
+  postLogin,
+  getLogout,
+  getNewMessage,
+  getJoin,
+  postJoin,
+}
