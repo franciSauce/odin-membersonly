@@ -45,3 +45,47 @@ app.use((req, res, next) => {
   next();
 });
 
+passport.use(
+  new LocalStrategy(async (username, password, done) => {
+    try {
+      const user = await users.getUserByUsername(username);
+
+      if (!user) return done(null, false, { message: 'Incorrect username' });
+
+      const match = await bcrypt.compare(password, user.password);
+      
+      return match ? done(null, user) : done(null, false, { message: 'Incorrect password' });
+    } catch (err) {
+      return done(err);
+    }
+  })
+);
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await users.getUserById(id);
+    done(null, user); 
+  } catch (error) {
+    done(error);
+  }
+});
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).send('Something went wrong!');
+});
+
+const indexRouter = require('./routes/indexRouter');
+app.use('/', indexRouter);
+
+const messagesRouter = require('./routes/messagesRouter');
+app.use('/messages', messagesRouter);
+
+app.listen(PORT, (err) => {
+  if (err) throw err;
+  console.log(`Server running on port ${PORT}`);
+})
