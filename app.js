@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const { format } = require('date-fns');
 const { env } = require('node:process');
 const express = require('express');
@@ -10,9 +12,16 @@ const expressLayouts = require('express-ejs-layouts');
 const pool = require('./db/pool');
 const users = require('./db/queries/usersQueries');
 
-require('dotenv').config();
+const { SESSION_SECRET } = env;
+const PORT = Number(env.PORT ?? 3000);
 
-const { SESSION_SECRET, PORT } = env;
+if (!SESSION_SECRET) {
+  throw new Error('Missing SESSION_SECRET. Add it to your .env file.');
+}
+
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  throw new Error('PORT must be an integer between 1 and 65535.');
+}
 
 const app = express();
 
