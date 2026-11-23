@@ -5,8 +5,6 @@ const bcrypt = require('bcryptjs');
 const users = require('../db/queries/usersQueries');
 const messages = require('../db/queries/messagesQueries');
 
-require('dotenv').config();
-
 const { MEMBER_PASSCODE, ADMIN_PASSCODE } = env;
 
 const validateUser = [

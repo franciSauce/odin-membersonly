@@ -1,8 +1,8 @@
+require('dotenv').config();
+
 const { Client } = require('pg');
 const { argv, exit, env } = require('node:process');
 const { DB_CONNECTION_STRING } = require('./config');
-
-require('dotenv').config();
 
 const {
   ADMIN_HASHED_PASSWORD,
