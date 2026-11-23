@@ -122,8 +122,10 @@ const main = async () => {
     for (const user of seedUsers) {
       await client.query(
         `INSERT INTO users (first_name, last_name, username, password, is_member, is_admin)
-         SELECT $1, $2, $3, $4, $5, $6
-         WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = $3)`,
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::boolean, $6::boolean
+         WHERE NOT EXISTS (
+           SELECT 1 FROM users WHERE username = $3::varchar
+         )`,
         [
           user.firstName,
           user.lastName,
@@ -138,15 +140,15 @@ const main = async () => {
     for (const message of seedMessages) {
       await client.query(
         `INSERT INTO messages (user_id, title, message)
-         SELECT users.id, $1, $2
+         SELECT users.id, $1::varchar, $2::text
          FROM users
-         WHERE users.username = $3
+         WHERE users.username = $3::varchar
            AND NOT EXISTS (
              SELECT 1
              FROM messages
              WHERE messages.user_id = users.id
-               AND messages.title = $1
-               AND messages.message = $2
+               AND messages.title = $1::varchar
+               AND messages.message = $2::text
            )`,
         [message.title, message.message, message.username],
       );
