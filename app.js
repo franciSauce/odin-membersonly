@@ -30,6 +30,10 @@ app.set('view engine', 'ejs');
 app.use(expressLayouts);
 app.set('layout', 'layouts/base');
 
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end();
+});
+
 app.use(expressSession({
   store: new pgSession({
     pool,
