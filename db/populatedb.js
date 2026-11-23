@@ -1,22 +1,16 @@
 require('dotenv').config();
 
 const { Client } = require('pg');
-const { argv, exit, env } = require('node:process');
+const { argv, env } = require('node:process');
 const { DB_CONNECTION_STRING } = require('./config');
-
-const {
-  ADMIN_HASHED_PASSWORD,
-  MEMBER_HASHED_PASSWORD,
-  USER_HASHED_PASSWORD,
-} = env;
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-  first_name VARCHAR ( 255 ),
-  last_name VARCHAR ( 255 ),
-  username VARCHAR ( 255 ),
-  password VARCHAR ( 255 ),
+  first_name VARCHAR(255),
+  last_name VARCHAR(255),
+  username VARCHAR(255),
+  password VARCHAR(255),
   is_member BOOLEAN DEFAULT FALSE,
   is_admin BOOLEAN DEFAULT FALSE
 );
@@ -33,55 +27,153 @@ CREATE TABLE IF NOT EXISTS messages (
     ON DELETE CASCADE
 );
 
-CREATE TABLE "user_sessions" (
-  "sid" varchar NOT NULL COLLATE "default",
-  "sess" json NOT NULL,
-  "expire" timestamp(6) NOT NULL
-)
-WITH (OIDS=FALSE);
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid varchar PRIMARY KEY,
+  sess json NOT NULL,
+  expire timestamp(6) NOT NULL
+);
 
-ALTER TABLE "user_sessions" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE;
-
-CREATE INDEX "IDX_session_expire" ON "user_sessions" ("expire");
-
-INSERT INTO users (first_name, last_name, username, password, is_member, is_admin) VALUES
-('Greg', 'Diaz', 'admin', '${ADMIN_HASHED_PASSWORD}', true, true),
-('Jane', 'Doe', 'janedoe', '${MEMBER_HASHED_PASSWORD}', true, false),
-('John', 'Smith', 'johnsmith', '${USER_HASHED_PASSWORD}', false, false);
-
-INSERT INTO messages (user_id, title, message) VALUES
-(1, 'Welcome to the Club', 'Hello everyone! I am excited to be part of this exclusive members-only club. Looking forward to connecting with all of you!'),
-(2, 'First Post', 'Hi all, this is my first post here. Happy to join the community and share my thoughts!'),
-(1, 'Event Announcement', 'We are thrilled to announce our upcoming members-only event! Stay tuned for more details.'),
-(3, 'Greetings', 'Hello! Just wanted to say hi to everyone here. Looking forward to engaging with you all.');
+CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON user_sessions (expire);
 `;
 
+const seedUsers = [
+  {
+    firstName: 'Greg',
+    lastName: 'Diaz',
+    username: 'admin',
+    password: env.ADMIN_HASHED_PASSWORD,
+    isMember: true,
+    isAdmin: true,
+  },
+  {
+    firstName: 'Jane',
+    lastName: 'Doe',
+    username: 'janedoe',
+    password: env.MEMBER_HASHED_PASSWORD,
+    isMember: true,
+    isAdmin: false,
+  },
+  {
+    firstName: 'John',
+    lastName: 'Smith',
+    username: 'johnsmith',
+    password: env.USER_HASHED_PASSWORD,
+    isMember: false,
+    isAdmin: false,
+  },
+];
+
+const seedMessages = [
+  {
+    username: 'admin',
+    title: 'Welcome to the Club',
+    message: 'Hello everyone! I am excited to be part of this exclusive members-only club. Looking forward to connecting with all of you!',
+  },
+  {
+    username: 'janedoe',
+    title: 'First Post',
+    message: 'Hi all, this is my first post here. Happy to join the community and share my thoughts!',
+  },
+  {
+    username: 'admin',
+    title: 'Event Announcement',
+    message: 'We are thrilled to announce our upcoming members-only event! Stay tuned for more details.',
+  },
+  {
+    username: 'johnsmith',
+    title: 'Greetings',
+    message: 'Hello! Just wanted to say hi to everyone here. Looking forward to engaging with you all.',
+  },
+];
+
 const usage = () => {
-  console.log('Usage: node db/populatedb.js <connection-string>');
-  console.log('Examples:');
-  console.log('  node db/populatedb.js "postgresql://postgres:root@localhost:5432/local_db"');
-  console.log('  node db/populatedb.js "postgresql://user:pass@prod-host:5432/prod_db"');
-}
+  console.log('Usage: npm run db:seed [-- <connection-string>]');
+  console.log('Without a connection string, DB_CONNECTION_STRING from .env is used.');
+};
 
 const main = async () => {
-  console.log('seeding...');
-  const client = new Client({ connectionString: argv[2] || DB_CONNECTION_STRING });
+  const connectionString = argv[2] || DB_CONNECTION_STRING;
+  if (!connectionString) {
+    throw new Error('Set DB_CONNECTION_STRING in .env or pass a connection string.');
+  }
+
+  const missingPasswords = seedUsers.filter(({ password }) => !password);
+  if (missingPasswords.length) {
+    throw new Error('Set ADMIN_HASHED_PASSWORD, MEMBER_HASHED_PASSWORD, and USER_HASHED_PASSWORD in .env.');
+  }
+
+  const invalidPasswordHashes = seedUsers.filter(({ password }) =>
+    !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(password));
+  if (invalidPasswordHashes.length) {
+    throw new Error('Seed passwords must be bcrypt hashes.');
+  }
+
+  const client = new Client({ connectionString });
+  let connected = false;
+  let transactionStarted = false;
 
   try {
     await client.connect();
+    connected = true;
+    await client.query('BEGIN');
+    transactionStarted = true;
     await client.query(SQL);
-    console.log("done");
+
+    for (const user of seedUsers) {
+      await client.query(
+        `INSERT INTO users (first_name, last_name, username, password, is_member, is_admin)
+         SELECT $1, $2, $3, $4, $5, $6
+         WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = $3)`,
+        [
+          user.firstName,
+          user.lastName,
+          user.username,
+          user.password,
+          user.isMember,
+          user.isAdmin,
+        ],
+      );
+    }
+
+    for (const message of seedMessages) {
+      await client.query(
+        `INSERT INTO messages (user_id, title, message)
+         SELECT users.id, $1, $2
+         FROM users
+         WHERE users.username = $3
+           AND NOT EXISTS (
+             SELECT 1
+             FROM messages
+             WHERE messages.user_id = users.id
+               AND messages.title = $1
+               AND messages.message = $2
+           )`,
+        [message.title, message.message, message.username],
+      );
+    }
+
+    await client.query('COMMIT');
+    transactionStarted = false;
+    console.log('Database schema is ready; missing demo data has been seeded.');
   } catch (error) {
-    console.error('Error seeding DB:', error.message);
-    process.exitCode = 1;
+    if (transactionStarted) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Database rollback failed:', rollbackError.message);
+      }
+    }
+    throw error;
   } finally {
-    await client.end();
+    if (connected) await client.end();
   }
-}
+};
 
-if (argv.includes('--help') || process.argv.includes('-h')) {
+if (argv.includes('--help') || argv.includes('-h')) {
   usage();
-  exit();
+} else {
+  main().catch((error) => {
+    console.error('Error preparing database:', error.message);
+    process.exitCode = 1;
+  });
 }
-
-main();
